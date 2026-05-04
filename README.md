@@ -117,3 +117,29 @@ sudo journalctl -fu aprs-wx.service
 ---
 
 ## APRS Packet Format
+CA2JAT-13>APZ000,TCPIP*::@031335zDDMM.mmS/DDDMM.mmW_ddd/sssgtttrRRRpPPPhHHbBBBBBLLLL0 comment
+- **WX packet** every 30 minutes
+- **BLN0** — Daily summary (temp, max, min, humidity, wind)
+- **BLN1** — Tomorrow's forecast from DMC
+- **BLN2** — Fire risk index from DMC
+
+---
+
+## APRS Servers / Servidores APRS
+
+| Country | Server |
+|---------|--------|
+| Chile | `cx2sa.net:14580` |
+| Panama | `panama.aprs2.net:14580` |
+| Global | `rotate.aprs2.net:14580` |
+
+---
+
+## License
+
+MIT License — Free to use, modify and distribute.  
+Please keep the original credits in the script header.
+
+---
+
+*73 de CA2JAT 🇨🇱 — Valle de Elqui*
