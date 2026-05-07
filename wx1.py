@@ -349,14 +349,28 @@ while True:
         pkts_alerta = evaluar_alertas(datos)
         pkts_bln    = verificar_bln(datos, riesgo)
 
-        enviar_aprs(sock_params, login, [pkt_wx] + pkts_alerta + pkts_bln)
-
-        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] [{datos['fuente']}] "
-              f"T:{datos['temp_c']:.1f}C Max:{estado_dia['temp_max']:.1f}C "
-              f"Min:{estado_dia['temp_min']:.1f}C | "
-              f"Alerts:{len(pkts_alerta)} BLN:{len(pkts_bln)}")
-
-    except Exception as e:
-        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] General error: {e}")
-
+        def enviar_aprs(sock_params, login, paquetes):
+    host, port = sock_params
+    for i, p in enumerate(paquetes):
+        enviado = False
+        for intento in range(3):  # hasta 3 intentos
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(15)
+                sock.connect((host, port))
+                sock.send(f"{login}\n".encode())
+                time.sleep(1)
+                sock.send(f"{p}\n".encode())
+                time.sleep(0.5)
+                sock.close()
+                print(f"[OK] Paquete {i+1}/{len(paquetes)}: {p[:80]}")
+                enviado = True
+                break
+            except Exception as e:
+                print(f"[REINTENTO {intento+1}] Error paquete {i+1}: {e}")
+                time.sleep(5)
+        if not enviado:
+            print(f"[FALLO] No se pudo enviar paquete {i+1}: {p[:80]}")
+        if i < len(paquetes) - 1:
+            time.sleep(15)  # aumentado de 10 a 15 segundos
     time.sleep(every * 60)
