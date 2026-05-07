@@ -11,56 +11,49 @@ import pytz
 # Author: CA2JAT - Valle de Elqui, Chile
 # Inspired by: Python APRS WX by HP3ICC
 # GitHub: https://github.com/ca2jat/APRS-WX-CE
-# v1.1 - 2026
+# v1.2 - 2026
 #
 # Data sources:
 #   Primary:  EMA DMC (Direccion Meteorologica de Chile)
 #   Fallback: OpenWeatherMap
-#
-# Features:
-#   - Real WX data from nearest DMC station
-#   - Automatic alerts (heat, frost, wind, rain)
-#   - Daily BLN bulletins at 9AM and 9PM (local time)
-#   - Fire risk bulletin from DMC
-#   - Persistent state (survives restarts)
 ################################################
 
-# === USER CONFIGURATION ===
+# === CONFIGURACIÓN DEL USUARIO ===
 
-callsign   = "CA2JAT-13"        # Your callsign with SSID
-latitude   = "30.01.94S"        # Format: DD.MM.mmN/S
-longitude  = "070.41.86W"       # Format: DDD.MM.mmE/W
+callsign   = "CA2JAT-13"
+latitude   = "30.01.94S"
+longitude  = "070.41.86W"
 
-serverHost = "cx2sa.net"        # APRS server (chile: cx2sa.net)
+serverHost = "cx2sa.net"
 serverPort = 14580
-every      = 30                 # Minutes between WX transmissions
+every      = 30
 
-TZ_LOCAL   = pytz.timezone("America/Santiago")  # Your timezone
+TZ_LOCAL   = pytz.timezone("America/Santiago")
 
-# MeteoChile API (register at climatologia.meteochile.gob.cl)
-mc_usuario  = "your@email.com"  # Your registered email
-mc_token    = "YOUR_TOKEN"      # Your API token
-mc_estacion = "300046"          # Nearest EMA station code
-mc_comuna   = "Vicuña"          # Your commune name
+# MeteoChile
+mc_usuario  = "ca2jat@gmail.com"
+mc_token    = "3744a16f8c060e49d9ff342d"
+mc_estacion = "300046"
+mc_comuna   = "Vicuña"
 
-# OpenWeatherMap fallback (register at openweathermap.org)
-owm_api_key = "YOUR_OWM_API_KEY"
-owm_map_id  = "3868308"         # Your city ID
+# OpenWeatherMap (fallback)
+owm_api_key = "e9cfa698394f05eb64dcabbb7faed5e2"
+owm_map_id  = "3868308"
 owm_lang    = "es"
 
-# Alert thresholds
-ALERTA_CALOR    = 35.0          # °C heat alert
-ALERTA_HELADA   = 2.0           # °C frost alert
-ALERTA_VIENTO   = 40.0          # km/h wind alert
-ALERTA_LLUVIA   = 5.0           # mm/h rain alert
+# Umbrales de alerta WX
+ALERTA_CALOR    = 35.0
+ALERTA_HELADA   = 2.0
+ALERTA_VIENTO   = 40.0
+ALERTA_LLUVIA   = 5.0
 
-# BLN bulletin schedule (local time hours)
-BLN_HORAS = [9, 21]             # 9 AM and 9 PM
+# Horarios BLN en hora local (Chile)
+BLN_HORAS = [9, 21]
 
-# Persistent state file
+# Archivo de estado persistente
 ESTADO_FILE = "/opt/python-wx/estado_dia.json"
 
-# === END USER CONFIGURATION ===
+# === FIN CONFIGURACIÓN ===
 
 def calculate_aprs_passcode(callsign):
     cs = callsign.upper().split('-')[0]
@@ -103,31 +96,65 @@ def guardar_estado(ed):
         with open(ESTADO_FILE, "w") as f:
             json.dump(d, f)
     except Exception as e:
-        print(f"Error saving state: {e}")
+        print(f"Error guardando estado: {e}")
+
+def nivel_riesgo_incendio(temp_max, hum_min, viento_max):
+    try:
+        t = float(temp_max)   if temp_max   else 0
+        h = float(hum_min)    if hum_min    else 100
+        v = float(viento_max) if viento_max else 0
+        puntos = 0
+        if t >= 35:   puntos += 3
+        elif t >= 30: puntos += 2
+        elif t >= 25: puntos += 1
+        if h < 15:    puntos += 3
+        elif h < 30:  puntos += 2
+        elif h < 50:  puntos += 1
+        if v > 70:    puntos += 3
+        elif v > 50:  puntos += 2
+        elif v > 30:  puntos += 1
+        if puntos >= 7:   return "EXTREMO"
+        elif puntos >= 4: return "ALTO"
+        elif puntos >= 2: return "MEDIO"
+        else:             return "BAJO"
+    except:
+        return "?"
 
 def enviar_aprs(sock_params, login, paquetes):
     host, port = sock_params
     for i, p in enumerate(paquetes):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(15)
-        sock.connect((host, port))
-        sock.send(f"{login}\n".encode())
-        time.sleep(0.5)
-        sock.send(f"{p}\n".encode())
-        sock.close()
+        enviado = False
+        for intento in range(3):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(15)
+                sock.connect((host, port))
+                sock.send(f"{login}\n".encode())
+                time.sleep(1)
+                sock.send(f"{p}\n".encode())
+                time.sleep(0.5)
+                sock.close()
+                print(f"[OK] Paquete {i+1}/{len(paquetes)}: {p[:80]}")
+                enviado = True
+                break
+            except Exception as e:
+                print(f"[REINTENTO {intento+1}] Error paquete {i+1}: {e}")
+                time.sleep(5)
+        if not enviado:
+            print(f"[FALLO] No se pudo enviar paquete {i+1}: {p[:80]}")
         if i < len(paquetes) - 1:
-            time.sleep(10)
+            time.sleep(15)
 
 password    = calculate_aprs_passcode(callsign)
 address     = f"{callsign}>APZ000,TCPIP*:"
-login       = f"user {callsign} pass {password} vers CA2JAT-WX 1.1"
+login       = f"user {callsign} pass {password} vers CA2JAT-WX 1.2"
 latg        = latitude.replace(".", "", 1)
 long        = longitude.replace(".", "", 1)
 sock_params = (serverHost, serverPort)
 estado_dia  = cargar_estado()
 
 # ============================================================
-# DATA SOURCES
+# FUENTES DE DATOS
 # ============================================================
 
 def get_datos_dmc():
@@ -143,7 +170,7 @@ def get_datos_dmc():
     momento = datetime.strptime(u["momento"], "%Y-%m-%d %H:%M:%S")
     diff    = (datetime.utcnow() - momento).total_seconds() / 3600
     if diff > 2:
-        raise Exception(f"DMC: data is {diff:.1f}h old")
+        raise Exception(f"DMC: dato con {diff:.1f}h de retraso")
 
     temp_c   = float(u["temperatura"].split()[0])
     temp_f   = celsius_to_fahrenheit(temp_c)
@@ -242,7 +269,7 @@ def get_riesgo_incendio():
     return None
 
 # ============================================================
-# ALERTS
+# ALERTAS WX
 # ============================================================
 
 def evaluar_alertas(datos):
@@ -254,7 +281,7 @@ def evaluar_alertas(datos):
         if key not in estado_dia["alertas_activas"]:
             estado_dia["alertas_activas"].add(key)
             alertas.append(f"{address}>{msg}")
-            print(f"[ALERT] {msg}")
+            print(f"[ALERTA] {msg}")
 
     if datos["temp_c"] >= ALERTA_CALOR:
         alerta("calor",  f"ALERTA-WX: Calor extremo {datos['temp_c']:.1f}C en {mc_comuna}")
@@ -268,13 +295,14 @@ def evaluar_alertas(datos):
     return alertas
 
 # ============================================================
-# BLN BULLETINS
+# BOLETINES BLN
 # ============================================================
 
 def generar_bln(datos, riesgo):
     bln = []
     ed  = estado_dia
 
+    # BLN0 - Resumen del día
     bln0 = (f"WX {mc_comuna}: {datos['temp_c']:.1f}C "
             f"Max:{ed['temp_max']:.1f}C Min:{ed['temp_min']:.1f}C "
             f"HR:{datos['humidity']}% Vmax:{ed['viento_max']:.0f}km/h "
@@ -282,14 +310,21 @@ def generar_bln(datos, riesgo):
     bln.append(f"{address}:BLN0     :{bln0[:67]}")
 
     if riesgo:
-        bln1 = (f"Pronostico manana: TMax:{riesgo.get('temp_max_manana','?')}C "
-                f"HumMin:{riesgo.get('hum_min_manana','?')}% "
-                f"Vmax:{riesgo.get('viento_max_manana','?')}km/h DMC")
+        # BLN1 - Pronóstico mañana
+        tm  = riesgo.get("temp_max_manana", "?")
+        hm  = riesgo.get("hum_min_manana",  "?")
+        vm  = riesgo.get("viento_max_manana","?")
+        bln1 = (f"Pronostico manana: TMax:{tm}C "
+                f"HumMin:{hm}% Vmax:{vm}km/h DMC")
         bln.append(f"{address}:BLN1     :{bln1[:67]}")
 
-        bln2 = (f"Riesgo incendio hoy: TMax:{riesgo.get('temp_max_hoy','?')}C "
-                f"HumMin:{riesgo.get('hum_min_hoy','?')}% "
-                f"Vmax:{riesgo.get('viento_max_hoy','?')}km/h")
+        # BLN2 - Alerta de incendio con nivel
+        th    = riesgo.get("temp_max_hoy",   "?")
+        hh    = riesgo.get("hum_min_hoy",    "?")
+        vh    = riesgo.get("viento_max_hoy", "?")
+        nivel = nivel_riesgo_incendio(th, hh, vh)
+        bln2  = (f"Alerta Incendio: {nivel} "
+                 f"TMax:{th}C HumMin:{hh}% Vmax:{vh}km/h")
         bln.append(f"{address}:BLN2     :{bln2[:67]}")
     else:
         bln.append(f"{address}:BLN1     :Datos pronostico DMC no disponibles")
@@ -316,17 +351,17 @@ def verificar_bln(datos, riesgo):
     return []
 
 # ============================================================
-# MAIN LOOP
+# LOOP PRINCIPAL
 # ============================================================
 
-print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] APRS-WX-CE v1.1 starting... ({callsign})")
+print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] APRS-WX-CE v1.2 iniciando... ({callsign})")
 
 while True:
     try:
         try:
             datos = get_datos_dmc()
         except Exception as e_dmc:
-            print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] DMC failed: {e_dmc} -> OWM fallback")
+            print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] DMC fallo: {e_dmc} -> OWM")
             datos = get_datos_owm()
 
         if datos["temp_c"] > estado_dia["temp_max"]:
@@ -341,7 +376,7 @@ while True:
         try:
             riesgo = get_riesgo_incendio()
         except Exception as e_ri:
-            print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Fire risk unavailable: {e_ri}")
+            print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Riesgo incendio no disponible: {e_ri}")
 
         ts     = datetime.utcnow().strftime("%d%H%M")
         pkt_wx = f"{address}@{ts}z{latg}/{long}_{datos['wx_str']}"
@@ -349,28 +384,14 @@ while True:
         pkts_alerta = evaluar_alertas(datos)
         pkts_bln    = verificar_bln(datos, riesgo)
 
-        def enviar_aprs(sock_params, login, paquetes):
-    host, port = sock_params
-    for i, p in enumerate(paquetes):
-        enviado = False
-        for intento in range(3):  # hasta 3 intentos
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(15)
-                sock.connect((host, port))
-                sock.send(f"{login}\n".encode())
-                time.sleep(1)
-                sock.send(f"{p}\n".encode())
-                time.sleep(0.5)
-                sock.close()
-                print(f"[OK] Paquete {i+1}/{len(paquetes)}: {p[:80]}")
-                enviado = True
-                break
-            except Exception as e:
-                print(f"[REINTENTO {intento+1}] Error paquete {i+1}: {e}")
-                time.sleep(5)
-        if not enviado:
-            print(f"[FALLO] No se pudo enviar paquete {i+1}: {p[:80]}")
-        if i < len(paquetes) - 1:
-            time.sleep(15)  # aumentado de 10 a 15 segundos
+        enviar_aprs(sock_params, login, [pkt_wx] + pkts_alerta + pkts_bln)
+
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] [{datos['fuente']}] "
+              f"T:{datos['temp_c']:.1f}C Max:{estado_dia['temp_max']:.1f}C "
+              f"Min:{estado_dia['temp_min']:.1f}C | "
+              f"Alertas:{len(pkts_alerta)} BLN:{len(pkts_bln)}")
+
+    except Exception as e:
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Error general: {e}")
+
     time.sleep(every * 60)
