@@ -16,44 +16,52 @@ import pytz
 # Data sources:
 #   Primary:  EMA DMC (Direccion Meteorologica de Chile)
 #   Fallback: OpenWeatherMap
+#
+# Features:
+#   - Real WX data from nearest DMC EMA station
+#   - Automatic alerts: heat, frost, wind, rain
+#   - Daily BLN bulletins at 9AM and 9PM (local time)
+#   - Fire risk level: BAJO/MEDIO/ALTO/EXTREMO
+#   - Persistent state (survives restarts)
+#   - Automatic retry on failed transmissions
 ################################################
 
-# === CONFIGURACIÓN DEL USUARIO ===
+# === USER CONFIGURATION ===
 
-callsign   = "CA2JAT-13"
-latitude   = "30.01.94S"
-longitude  = "070.41.86W"
+callsign   = "CA2JAT-13"            # Your callsign with SSID
+latitude   = "30.01.94S"            # Format: DD.MM.mmN/S
+longitude  = "070.41.86W"           # Format: DDD.MM.mmE/W
 
-serverHost = "cx2sa.net"
+serverHost = "cx2sa.net"            # APRS server (Chile: cx2sa.net)
 serverPort = 14580
-every      = 30
+every      = 30                     # Minutes between WX transmissions
 
-TZ_LOCAL   = pytz.timezone("America/Santiago")
+TZ_LOCAL   = pytz.timezone("America/Santiago")  # Your timezone
 
-# MeteoChile
-mc_usuario  = "ca2jat@gmail.com"
-mc_token    = "3744a16f8c060e49d9ff342d"
-mc_estacion = "300046"
-mc_comuna   = "Vicuña"
+# MeteoChile API (register at climatologia.meteochile.gob.cl)
+mc_usuario  = "your@email.com"      # Your registered email
+mc_token    = "YOUR_TOKEN"          # Your API token
+mc_estacion = "300046"              # Nearest EMA station code
+mc_comuna   = "Vicuña"              # Your commune name
 
-# OpenWeatherMap (fallback)
-owm_api_key = "e9cfa698394f05eb64dcabbb7faed5e2"
-owm_map_id  = "3868308"
-owm_lang    = "es"
+# OpenWeatherMap fallback (register at openweathermap.org)
+owm_api_key = "YOUR_OWM_API_KEY"    # Your OWM API key
+owm_map_id  = "3868308"             # Your city ID
+owm_lang    = "es"                  # Language: es, en, etc.
 
-# Umbrales de alerta WX
-ALERTA_CALOR    = 35.0
-ALERTA_HELADA   = 2.0
-ALERTA_VIENTO   = 40.0
-ALERTA_LLUVIA   = 5.0
+# WX Alert thresholds
+ALERTA_CALOR    = 35.0              # °C heat alert
+ALERTA_HELADA   = 2.0               # °C frost alert
+ALERTA_VIENTO   = 40.0              # km/h wind alert
+ALERTA_LLUVIA   = 5.0               # mm/h rain alert
 
-# Horarios BLN en hora local (Chile)
-BLN_HORAS = [9, 21]
+# BLN bulletin schedule (local time hours)
+BLN_HORAS = [9, 21]                 # 9 AM and 9 PM
 
-# Archivo de estado persistente
+# Persistent state file
 ESTADO_FILE = "/opt/python-wx/estado_dia.json"
 
-# === FIN CONFIGURACIÓN ===
+# === END USER CONFIGURATION ===
 
 def calculate_aprs_passcode(callsign):
     cs = callsign.upper().split('-')[0]
@@ -96,9 +104,10 @@ def guardar_estado(ed):
         with open(ESTADO_FILE, "w") as f:
             json.dump(d, f)
     except Exception as e:
-        print(f"Error guardando estado: {e}")
+        print(f"Error saving state: {e}")
 
 def nivel_riesgo_incendio(temp_max, hum_min, viento_max):
+    """Calculate fire risk level based on DMC criteria."""
     try:
         t = float(temp_max)   if temp_max   else 0
         h = float(hum_min)    if hum_min    else 100
@@ -121,6 +130,7 @@ def nivel_riesgo_incendio(temp_max, hum_min, viento_max):
         return "?"
 
 def enviar_aprs(sock_params, login, paquetes):
+    """Send APRS packets with retry logic."""
     host, port = sock_params
     for i, p in enumerate(paquetes):
         enviado = False
@@ -134,14 +144,14 @@ def enviar_aprs(sock_params, login, paquetes):
                 sock.send(f"{p}\n".encode())
                 time.sleep(0.5)
                 sock.close()
-                print(f"[OK] Paquete {i+1}/{len(paquetes)}: {p[:80]}")
+                print(f"[OK] Packet {i+1}/{len(paquetes)}: {p[:80]}")
                 enviado = True
                 break
             except Exception as e:
-                print(f"[REINTENTO {intento+1}] Error paquete {i+1}: {e}")
+                print(f"[RETRY {intento+1}] Error packet {i+1}: {e}")
                 time.sleep(5)
         if not enviado:
-            print(f"[FALLO] No se pudo enviar paquete {i+1}: {p[:80]}")
+            print(f"[FAILED] Could not send packet {i+1}: {p[:80]}")
         if i < len(paquetes) - 1:
             time.sleep(15)
 
@@ -154,10 +164,11 @@ sock_params = (serverHost, serverPort)
 estado_dia  = cargar_estado()
 
 # ============================================================
-# FUENTES DE DATOS
+# DATA SOURCES
 # ============================================================
 
 def get_datos_dmc():
+    """Get weather data from DMC EMA station."""
     url = (
         f"https://climatologia.meteochile.gob.cl/application/servicios/"
         f"getDatosRecientesEma/{mc_estacion}"
@@ -170,7 +181,7 @@ def get_datos_dmc():
     momento = datetime.strptime(u["momento"], "%Y-%m-%d %H:%M:%S")
     diff    = (datetime.utcnow() - momento).total_seconds() / 3600
     if diff > 2:
-        raise Exception(f"DMC: dato con {diff:.1f}h de retraso")
+        raise Exception(f"DMC: data is {diff:.1f}h old")
 
     temp_c   = float(u["temperatura"].split()[0])
     temp_f   = celsius_to_fahrenheit(temp_c)
@@ -211,6 +222,7 @@ def get_datos_dmc():
     }
 
 def get_datos_owm():
+    """Get weather data from OpenWeatherMap (fallback)."""
     url  = (f"https://api.openweathermap.org/data/2.5/weather"
             f"?id={owm_map_id}&lang={owm_lang}&units=metric&appid={owm_api_key}")
     r    = requests.get(url, timeout=10)
@@ -251,6 +263,7 @@ def get_datos_owm():
     }
 
 def get_riesgo_incendio():
+    """Get fire risk data from DMC GeoServices."""
     url  = (f"https://climatologia.meteochile.gob.cl/application/geoservicios/"
             f"getRiesgoIncendio?usuario={mc_usuario}&token={mc_token}")
     r    = requests.get(url, timeout=15)
@@ -269,10 +282,11 @@ def get_riesgo_incendio():
     return None
 
 # ============================================================
-# ALERTAS WX
+# WX ALERTS
 # ============================================================
 
 def evaluar_alertas(datos):
+    """Generate alert packets if thresholds are exceeded."""
     alertas = []
     now_key = datetime.now(TZ_LOCAL).strftime("%Y%m%d%H")
 
@@ -281,7 +295,7 @@ def evaluar_alertas(datos):
         if key not in estado_dia["alertas_activas"]:
             estado_dia["alertas_activas"].add(key)
             alertas.append(f"{address}>{msg}")
-            print(f"[ALERTA] {msg}")
+            print(f"[ALERT] {msg}")
 
     if datos["temp_c"] >= ALERTA_CALOR:
         alerta("calor",  f"ALERTA-WX: Calor extremo {datos['temp_c']:.1f}C en {mc_comuna}")
@@ -295,14 +309,15 @@ def evaluar_alertas(datos):
     return alertas
 
 # ============================================================
-# BOLETINES BLN
+# BLN BULLETINS
 # ============================================================
 
 def generar_bln(datos, riesgo):
+    """Generate APRS BLN bulletin packets."""
     bln = []
     ed  = estado_dia
 
-    # BLN0 - Resumen del día
+    # BLN0 - Daily summary
     bln0 = (f"WX {mc_comuna}: {datos['temp_c']:.1f}C "
             f"Max:{ed['temp_max']:.1f}C Min:{ed['temp_min']:.1f}C "
             f"HR:{datos['humidity']}% Vmax:{ed['viento_max']:.0f}km/h "
@@ -310,7 +325,7 @@ def generar_bln(datos, riesgo):
     bln.append(f"{address}:BLN0     :{bln0[:67]}")
 
     if riesgo:
-        # BLN1 - Pronóstico mañana
+        # BLN1 - Tomorrow's forecast
         tm  = riesgo.get("temp_max_manana", "?")
         hm  = riesgo.get("hum_min_manana",  "?")
         vm  = riesgo.get("viento_max_manana","?")
@@ -318,7 +333,7 @@ def generar_bln(datos, riesgo):
                 f"HumMin:{hm}% Vmax:{vm}km/h DMC")
         bln.append(f"{address}:BLN1     :{bln1[:67]}")
 
-        # BLN2 - Alerta de incendio con nivel
+        # BLN2 - Fire risk alert with level
         th    = riesgo.get("temp_max_hoy",   "?")
         hh    = riesgo.get("hum_min_hoy",    "?")
         vh    = riesgo.get("viento_max_hoy", "?")
@@ -332,6 +347,7 @@ def generar_bln(datos, riesgo):
     return bln
 
 def verificar_bln(datos, riesgo):
+    """Check if it's time to send BLN bulletins."""
     ahora    = datetime.now(TZ_LOCAL)
     hora_now = ahora.hour
     fecha    = ahora.strftime("%Y%m%d")
@@ -351,17 +367,17 @@ def verificar_bln(datos, riesgo):
     return []
 
 # ============================================================
-# LOOP PRINCIPAL
+# MAIN LOOP
 # ============================================================
 
-print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] APRS-WX-CE v1.2 iniciando... ({callsign})")
+print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] APRS-WX-CE v1.2 starting... ({callsign})")
 
 while True:
     try:
         try:
             datos = get_datos_dmc()
         except Exception as e_dmc:
-            print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] DMC fallo: {e_dmc} -> OWM")
+            print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] DMC failed: {e_dmc} -> OWM fallback")
             datos = get_datos_owm()
 
         if datos["temp_c"] > estado_dia["temp_max"]:
@@ -376,7 +392,7 @@ while True:
         try:
             riesgo = get_riesgo_incendio()
         except Exception as e_ri:
-            print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Riesgo incendio no disponible: {e_ri}")
+            print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Fire risk unavailable: {e_ri}")
 
         ts     = datetime.utcnow().strftime("%d%H%M")
         pkt_wx = f"{address}@{ts}z{latg}/{long}_{datos['wx_str']}"
@@ -389,9 +405,9 @@ while True:
         print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] [{datos['fuente']}] "
               f"T:{datos['temp_c']:.1f}C Max:{estado_dia['temp_max']:.1f}C "
               f"Min:{estado_dia['temp_min']:.1f}C | "
-              f"Alertas:{len(pkts_alerta)} BLN:{len(pkts_bln)}")
+              f"Alerts:{len(pkts_alerta)} BLN:{len(pkts_bln)}")
 
     except Exception as e:
-        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Error general: {e}")
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] General error: {e}")
 
     time.sleep(every * 60)
