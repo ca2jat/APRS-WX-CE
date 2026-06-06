@@ -14,13 +14,15 @@
 
 ## Features / Características
 
-- 📡 Sends real WX data to APRS network every 30 minutes
-- 🌡️ Primary data source: **DMC EMA stations** (Dirección Meteorológica de Chile)
-- 🔄 Automatic fallback to **OpenWeatherMap** if DMC is unavailable
-- 🚨 Automatic alerts for: heat, frost, strong wind, heavy rain
-- 📋 Daily bulletins (BLN) at 9 AM and 9 PM with forecast and fire risk
-- 💾 Persistent state — survives service restarts
-- 🔥 Fire risk data from DMC GeoServices
+## Características
+
+- 📡 Envía datos meteorológicos reales a la red APRS cada 30 minutos
+- 🌡️ Fuente principal de datos: **Estaciones EMA del DMC** (Dirección Meteorológica de Chile)
+- 🔄 Fallback automático a **OpenWeatherMap** si el DMC no está disponible
+- 🚨 Alertas automáticas por: calor extremo, helada, viento fuerte y lluvia intensa
+- 📋 Boletines diarios (BLN) con horario único por indicativo para evitar congestión
+- 💾 Estado persistente — sobrevive reinicios del servicio
+- 🔥 Nivel de riesgo de incendio: BAJO / MEDIO / ALTO / EXTREMO desde el DMC
 
 ---
 
