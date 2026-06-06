@@ -9,6 +9,9 @@
 > Inspirado en [Python APRS WX](https://gitlab.com/hp3icc/python-aprs-wx) de **HP3ICC** 🇵🇦  
 > Desarrollado por **CA2JAT** — Valle de Elqui, Chile 🇨🇱
 
+> 🪟 [Guía de instalación para Windows disponible aquí](README.windows.md)  
+> 🇬🇧 [English version available here](README.en.md)
+
 ---
 
 ## Características
@@ -17,17 +20,19 @@
 - 🌡️ Fuente principal de datos: **Estaciones EMA del DMC** (Dirección Meteorológica de Chile)
 - 🔄 Fallback automático a **OpenWeatherMap** si el DMC no está disponible
 - 🚨 Alertas automáticas por: calor extremo, helada, viento fuerte y lluvia intensa
-- 📋 Boletines diarios (BLN) a las 9 AM y 9 PM con pronóstico y riesgo de incendio
+- 📋 Boletines diarios (BLN) con horario único por indicativo para evitar congestión en la red
 - 💾 Estado persistente — sobrevive reinicios del servicio
-- 🔥 Datos de riesgo de incendio desde los GeoServicios del DMC
+- 🔥 Nivel de riesgo de incendio: BAJO / MEDIO / ALTO / EXTREMO desde el DMC
+- 🔁 Reintento automático en transmisiones fallidas
 
 ---
 
 ## Requisitos
 
 - Python 3.x
-- Raspberry Pi / Orange Pi / cualquier SBC con Linux
+- Raspberry Pi / Orange Pi / cualquier SBC con Linux (o Windows)
 - Conexión a internet
+- Indicativo de radioaficionado
 
 ```bash
 sudo apt-get install python3-requests python3-pytz
@@ -37,13 +42,13 @@ sudo apt-get install python3-requests python3-pytz
 
 ## Fuentes de Datos
 
-### DMC (Fuente Principal)
+### DMC — Fuente Principal
 Regístrate en [climatologia.meteochile.gob.cl](https://climatologia.meteochile.gob.cl) para obtener tu token API gratuito.
 
 Encuentra el código de tu estación EMA más cercana en:  
 `https://climatologia.meteochile.gob.cl/application/requerimiento/producto/RE7003`
 
-### OpenWeatherMap (Fallback)
+### OpenWeatherMap — Respaldo
 Regístrate en [openweathermap.org](https://openweathermap.org) para obtener tu API key gratuita.  
 Encuentra el ID de tu ciudad buscándola en el sitio web de OWM.
 
@@ -51,21 +56,21 @@ Encuentra el ID de tu ciudad buscándola en el sitio web de OWM.
 
 ## Configuración
 
-Edita la sección **CONFIGURACIÓN DEL USUARIO** en `wx1.py`:
+Edita la sección `CONFIGURACIÓN DEL USUARIO` en `wx1.py`:
 
 ```python
-callsign   = "CA2JAT-13"        # Tu indicativo con SSID
-latitude   = "30.01.94S"        # Formato: GG.MM.mmN/S
-longitude  = "070.41.86W"       # Formato: GGG.MM.mmE/W
-serverHost = "cx2sa.net"        # Servidor APRS de tu país
+indicativo   = "CA2JAT-13"         # Tu indicativo con SSID
+latitud      = "30.01.94S"         # Formato: GG.MM.mmN/S
+longitud     = "070.41.86W"        # Formato: GGG.MM.mmE/W
+servidorHost = "cx2sa.net"         # Servidor APRS de tu país
 
-mc_usuario  = "tu@correo.com"   # Correo registrado en DMC
-mc_token    = "TU_TOKEN"        # Token API del DMC
-mc_estacion = "300046"          # Código de la EMA más cercana
-mc_comuna   = "Vicuña"          # Tu comuna
+mc_usuario   = "tu@correo.com"     # Correo registrado en DMC
+mc_token     = "TU_TOKEN"          # Token API del DMC
+mc_estacion  = "300046"            # Código de tu EMA más cercana
+mc_comuna    = "Vicuña"            # Tu comuna
 
-owm_api_key = "TU_API_KEY_OWM"  # API key de OpenWeatherMap
-owm_map_id  = "3868308"         # ID de ciudad en OWM
+owm_api_key  = "TU_API_KEY_OWM"   # API key de OpenWeatherMap
+owm_ciudad_id = "3868308"          # ID de tu ciudad en OWM
 ```
 
 ### Umbrales de Alerta
@@ -76,9 +81,19 @@ ALERTA_VIENTO   = 40.0   # km/h
 ALERTA_LLUVIA   = 5.0    # mm/h
 ```
 
+### Horario de Boletines BLN
+Cada estación calcula automáticamente su propio minuto de envío basado en su indicativo. Esto evita que múltiples estaciones transmitan sus boletines al mismo tiempo, reduciendo la congestión en la red APRS.
+
+Por ejemplo:
+| Indicativo | Hora BLN mañana | Hora BLN noche |
+|------------|-----------------|----------------|
+| CA2JAT-13  | 09:39           | 21:39          |
+| CE3ABC-13  | 09:14           | 21:14          |
+| XQ2EK-7    | 09:07           | 21:07          |
+
 ---
 
-## Instalación
+## Instalación en Linux
 
 ```bash
 # Crear directorio
@@ -115,31 +130,10 @@ sudo journalctl -fu aprs-wx.service
 
 ---
 
+## Instalación en Windows
+
+Consulta la guía detallada paso a paso en [README.windows.md](README.windows.md)
+
+---
+
 ## Formato del Paquete APRS
-CA2JAT-13>APZ000,TCPIP*::@DDHHMMZ/LATLON_ddd/vvvgGGGtTTTrRRRpPPPhHHbBBBBBLLLL0 comentario
-- **Paquete WX** cada 30 minutos con datos reales de la EMA
-- **BLN0** — Resumen diario (temperatura actual, máxima, mínima, humedad, viento)
-- **BLN1** — Pronóstico de mañana desde el DMC
-- **BLN2** — Índice de riesgo de incendio desde el DMC
-
----
-
-## Servidores APRS
-
-| País | Servidor |
-|------|----------|
-| Chile | `cx2sa.net:14580` |
-| Panamá | `panama.aprs2.net:14580` |
-| Argentina | `rotate.aprs2.net:14580` |
-| Global | `rotate.aprs2.net:14580` |
-
----
-
-## Licencia
-
-Licencia MIT — Libre para usar, modificar y distribuir.  
-Por favor mantén los créditos originales en el encabezado del script.
-
----
-
-*73 de CA2JAT 🇨🇱 — Valle de Elqui*
